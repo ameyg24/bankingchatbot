@@ -19,17 +19,32 @@ interface UserInfo {
   token: string;
 }
 
+interface DocumentEntry {
+  id: string;
+  filename: string;
+  summary: string;
+  blobUrl?: string;
+  status?: "ok" | "error";
+  errorMsg?: string;
+}
+
 export default function App() {
+  console.log("Google Client ID:", getEnv("VITE_GOOGLE_CLIENT_ID"));
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [user, setUser] = useState<UserInfo | null>(() =>
     loadFromStorage("user", null)
+  );
+  const [documents, setDocuments] = useState<DocumentEntry[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [activeDocTab, setActiveDocTab] = useState<"summary" | "preview">(
+    "summary"
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatWindowRef = useRef<HTMLDivElement>(null);
@@ -101,29 +116,95 @@ export default function App() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    if (user) {
+      fetch("http://localhost:8000/documents", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      })
+        .then((r) => r.json())
+        .then((docs: DocumentEntry[]) => setDocuments(docs));
+    }
+  }, [user]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     setUploadSuccess(false);
-    if (!e.target.files?.length) return;
-    setUploading(true);
-    const file = e.target.files[0];
-    setUploadedFile(file);
-    setPdfUrl(URL.createObjectURL(file));
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch("http://localhost:8000/upload_pdf/", {
-        method: "POST",
-        body: formData,
-        headers: user ? { Authorization: `Bearer ${user.token}` } : {},
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      setUploadSuccess(true);
-    } catch (e) {
-      setUploadError("Error uploading PDF. Please try again.");
-      setUploadedFile(null);
-      setPdfUrl(null);
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    if (!user) {
+      setUploadError("Please sign in first.");
+      return;
     }
+    setUploading(true);
+    const uploads: Promise<DocumentEntry>[] = Array.from(fileList).map(
+      async (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await fetch("http://localhost:8000/upload_pdf/", {
+            method: "POST",
+            body: formData,
+            headers: { Authorization: `Bearer ${user.token}` },
+          });
+          if (!res.ok) {
+            let detail = "Upload failed";
+            try {
+              const err = await res.json();
+              detail = err.detail || detail;
+            } catch {}
+            return {
+              id: crypto.randomUUID(),
+              filename: file.name,
+              summary: detail,
+              blobUrl: undefined,
+              status: "error",
+              errorMsg: detail,
+            };
+          }
+          const data = await res.json();
+          return {
+            ...data.document,
+            blobUrl: URL.createObjectURL(file),
+            status: "ok",
+          };
+        } catch (err: any) {
+          return {
+            id: crypto.randomUUID(),
+            filename: file.name,
+            summary: "Network error",
+            status: "error",
+            errorMsg: err?.message,
+          };
+        }
+      }
+    );
+    const results = await Promise.all(uploads);
+    setDocuments((prev) => {
+      let mutated = [...prev];
+      for (const r of results) {
+        if (r.status === "ok") {
+          const idx = mutated.findIndex((d) => d.filename === r.filename);
+          if (idx >= 0) {
+            mutated[idx] = { ...mutated[idx], ...r }; // overwrite existing
+          } else {
+            mutated.push(r);
+          }
+        } else {
+          mutated.push(r);
+        }
+      }
+      return mutated;
+    });
+    const okDocs = results.filter((r) => r.status === "ok");
+    if (okDocs.length) {
+      const last = okDocs[okDocs.length - 1];
+      setActiveDocId(last.id);
+      setPdfUrl(last.blobUrl || null);
+      setActiveDocTab("preview");
+      setUploadSuccess(true);
+    }
+    const errorDocs = results.filter((r) => r.status === "error");
+    if (errorDocs.length) setUploadError(`${errorDocs.length} file(s) failed.`);
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -160,6 +241,12 @@ export default function App() {
     googleLogout();
   };
 
+  const activeDoc = documents.find((d) => d.id === activeDocId);
+
+  useEffect(() => {
+    document.title = "Banking Chatbot"; // Set page title
+  }, []);
+
   return (
     <GoogleOAuthProvider clientId={getEnv("VITE_GOOGLE_CLIENT_ID") || ""}>
       <div className="banking-bg split-layout">
@@ -184,9 +271,9 @@ export default function App() {
         <div className="main-content">
           {/* PDF Section */}
           <section className="pdf-section">
-            <div className="upload-row-top">
+            <div className="upload-row-top doc-upload-bar">
               <label className="upload-label" htmlFor="pdf-upload">
-                Upload PDF Statement:
+                Upload PDF Document(s):
               </label>
               <div className="file-upload-group">
                 <input
@@ -194,34 +281,90 @@ export default function App() {
                   className="upload-input"
                   type="file"
                   accept="application/pdf"
+                  multiple
                   onChange={handleFileUpload}
                   ref={fileInputRef}
                   disabled={uploading}
                 />
-                {uploadedFile && (
-                  <span className="file-name-display">{uploadedFile.name}</span>
-                )}
-                {uploading && (
-                  <span className="file-status uploading">Uploading...</span>
-                )}
-                {uploadSuccess && (
-                  <span className="file-status success">Uploaded</span>
-                )}
-                {uploadError && (
-                  <span className="file-status error">{uploadError}</span>
+                {uploading && <span className="file-status uploading">Uploading...</span>}
+                {uploadSuccess && <span className="file-status success">Uploaded</span>}
+                {uploadError && <span className="file-status error">{uploadError}</span>}
+                {documents.length > 0 && user && (
+                  <button
+                    type="button"
+                    style={{ marginLeft: '1rem' }}
+                    className="clear-docs-btn"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('http://localhost:8000/documents', { method: 'DELETE', headers: { Authorization: `Bearer ${user.token}` } });
+                        if (res.ok) {
+                          setDocuments([]);
+                          setActiveDocId(null);
+                          setPdfUrl(null);
+                        }
+                      } catch {}
+                    }}
+                  >
+                    Clear Documents
+                  </button>
                 )}
               </div>
             </div>
-            <div className="pdf-viewer">
-              {pdfUrl ? (
-                <iframe
-                  className="pdf-iframe"
-                  src={pdfUrl}
-                  title="PDF Preview"
-                />
-              ) : (
-                <div className="pdf-placeholder">No PDF uploaded</div>
-              )}
+            <div className="doc-split">
+              <div className="docs-panel">
+                <div className="docs-panel-header">Documents</div>
+                {documents.length === 0 && <div className="docs-empty">No documents uploaded</div>}
+                <div className="docs-scroll">
+                  {documents.map(d => (
+                    <div
+                      key={d.id}
+                      className={"doc-item" + (activeDocId === d.id ? " active" : "") + (d.status === 'error' ? " error" : "")}
+                      onClick={() => {
+                        setActiveDocId(d.id);
+                        setActiveDocTab('summary');
+                        if (!d.blobUrl && user && d.status !== 'error') {
+                          fetch(`http://localhost:8000/documents/${d.id}/file`, { headers: { Authorization: `Bearer ${user.token}` } })
+                            .then(r => r.blob())
+                            .then(b => {
+                              const url = URL.createObjectURL(b);
+                              setDocuments(prev => prev.map(p => p.id === d.id ? { ...p, blobUrl: url } : p));
+                              setPdfUrl(url);
+                            })
+                            .catch(() => {});
+                        } else {
+                          setPdfUrl(d.blobUrl || null);
+                        }
+                      }}
+                    >
+                      <div className="doc-filename" title={d.filename}>{d.filename}</div>
+                      <div className="doc-summary-line" title={d.summary}>{d.summary}</div>
+                      {d.status === 'error' && <div className="doc-error-msg">{d.errorMsg}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="doc-viewer-wrapper">
+                {activeDoc ? (
+                  <>
+                    <div className="doc-tabs">
+                      <button type="button" className={"doc-tab" + (activeDocTab === 'summary' ? ' active' : '')} onClick={() => setActiveDocTab('summary')}>Summary</button>
+                      <button type="button" className={"doc-tab" + (activeDocTab === 'preview' ? ' active' : '')} onClick={() => setActiveDocTab('preview')}>Preview</button>
+                    </div>
+                    {activeDocTab === 'summary' && (
+                      <div className="doc-summary-card">
+                        <h4>{activeDoc.filename}</h4>
+                        <p>{activeDoc.summary}</p>
+                        {activeDoc.status === 'error' && <p className="doc-summary-error">This file failed to process.</p>}
+                      </div>
+                    )}
+                    {activeDocTab === 'preview' && (
+                      pdfUrl ? <iframe className="pdf-iframe" src={pdfUrl} title="PDF Preview" /> : <div className="pdf-placeholder">No preview available</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="pdf-placeholder">No PDF selected</div>
+                )}
+              </div>
             </div>
           </section>
           {/* Chat Section */}
@@ -288,9 +431,10 @@ export default function App() {
                 </button>
               </form>
             </div>
-            <div className="chatbot-footer">
+            {/* Remove footer copyright (moved to page title) */}
+            {/* <div className="chatbot-footer">
               Banking Chatbot &copy; {new Date().getFullYear()}
-            </div>
+            </div> */}
           </section>
         </div>
       </div>

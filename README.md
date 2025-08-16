@@ -41,7 +41,7 @@ This project is a full-stack LLM-powered chatbot system for banking use cases.
 ## Project Structure
 
 - `src/` - React frontend code
-- `backend/` - Python FastAPI backend (to be created)
+- `backend/` - Python FastAPI backend
 
 ## Configuration
 

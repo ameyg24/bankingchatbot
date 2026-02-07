@@ -65,4 +65,4 @@ In Google Cloud Console, create/use an OAuth 2.0 **Web application** client and 
 
 ---
 
-This project is under active development.
+This project is under development.

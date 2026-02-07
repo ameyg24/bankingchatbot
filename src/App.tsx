@@ -1,10 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
-import {
-  GoogleOAuthProvider,
-  GoogleLogin,
-  googleLogout,
-} from "@react-oauth/google";
+import { GoogleLogin, googleLogout } from "@react-oauth/google";
 import { saveToStorage, loadFromStorage, getEnv } from "./persist";
 
 interface Message {
@@ -248,8 +244,7 @@ export default function App() {
   }, []);
 
   return (
-    <GoogleOAuthProvider clientId={getEnv("VITE_GOOGLE_CLIENT_ID") || ""}>
-      <div className="banking-bg split-layout">
+    <div className="banking-bg split-layout">
         {/* Login Bar - always top right */}
         <div className="login-bar-fixed">
           {user ? (
@@ -438,6 +433,5 @@ export default function App() {
           </section>
         </div>
       </div>
-    </GoogleOAuthProvider>
   );
 }

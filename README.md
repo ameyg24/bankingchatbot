@@ -11,41 +11,57 @@ This project is a full-stack LLM-powered chatbot system for banking use cases.
 
 ## Getting Started
 
-### Frontend
+### 1) Clone and enter repo
 
-1. Install dependencies:
-   ```sh
-   npm install
-   ```
-2. Start the development server:
-   ```sh
-   npm run dev
-   ```
+```sh
+git clone <your-repo-url>
+cd bankingchatbot
+```
 
-### Backend
+### 2) Create environment file
 
-1. Create a Python virtual environment and activate it:
-   ```sh
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-2. Install backend dependencies:
-   ```sh
-   pip install fastapi uvicorn openai pymupdf python-multipart
-   ```
-3. Start the backend server:
-   ```sh
-   uvicorn backend.main:app --reload
-   ```
+Copy `.env.example` to `.env` and set real values:
+
+```sh
+cp .env.example .env
+```
+
+Required keys in `.env`:
+
+- `OPENAI_API_KEY`: used by backend (`backend/main.py`)
+- `VITE_GOOGLE_CLIENT_ID`: used by frontend Google login
+
+### 3) Start backend (Terminal 1)
+
+```sh
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python3 -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Backend docs: `http://localhost:8000/docs`
+
+### 4) Start frontend (Terminal 2)
+
+```sh
+npm install
+npm run dev
+```
+
+Frontend URL: `http://localhost:5173`
 
 ## Project Structure
 
 - `src/` - React frontend code
 - `backend/` - Python FastAPI backend
 
-## Configuration
+## Google OAuth Setup (Required)
 
-- Set your OpenAI API key as an environment variable: `OPENAI_API_KEY`
+In Google Cloud Console, create/use an OAuth 2.0 **Web application** client and set:
+
+- Authorized JavaScript origins: `http://localhost:5173`
+- Authorized redirect URIs: `http://localhost:5173`
 
 ---
 
